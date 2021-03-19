@@ -1,0 +1,140 @@
+---
+title: "AdventOfCode_Network"
+author: "Adrian Pritchard"
+date: "18/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Advent of Code Day 10
+
+This problem started with a bag of transformers that were labelled according to their power output. Each label was unique. The transformers needed to be connected in sequence so that the maximum power output was achieved. Each transformer needed an input that was within 3 units of its own power (ie a transformer labelled '10' must be preceded by one labelled '7', '8', or '9').
+
+The goal was to start with the list of labelled transformers and calculate how many possible ways you could connect them from start to end.
+
+```{r setupdata, include=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(igraph)
+```
+
+```{r showstart, warning=FALSE}
+# Read in the data
+con <- file("Day10_data.txt", open="r")
+data <- readLines(con)
+
+# change to integers and and nodes for the start (0) and end (max + 3)
+data <- as.integer(data)
+data <- append(data, max(data)+3)
+data <- append(data, 0)
+
+print(head(data,10))
+```
+
+The first step is to arrange the transformers in order in a data frame.
+```{r arrange, echo=FALSE}
+# put the data into a data frame and sort it low to high
+df <- data.frame(sort(data))
+head(df,10)
+```
+## igraph
+I plan to use igraph to map the network of transformers and their possible connections, and then calculate how many possible ways we can join them. The first step is to create a data frame with 2 columns, showing all possible connections throughout the network.
+
+```{r igraph}
+possible_rows <- nrow(df)*3 # how many possible links could there be if every integer included
+# Next create a blank data frame of NAs. In R it is apparently better to assign all possible space in advance and then changing, rather than appending
+links <- data.frame(matrix(NA, nrow = possible_rows, ncol = 2))
+colnames(links) <- c("start", "end")
+colnames(df) <- c("val")
+
+# loop through the list of different adapters in order
+# find the 3 valid values for the next step (ie +1, +2, +3) and see if they are in the list of transformers that we have
+# for each step, create a row with the link shown
+row <- 1
+for (i in df$val){
+  step_1 <- i+1
+  step_2 <- i+2
+  step_3 <- i+3
+  if (step_1 %in% df$val){
+    links$start[row] <- i
+    links$end[row] <- step_1
+    row <- row+1
+  }
+  if (step_2 %in% df$val){
+    links$start[row] <- i
+    links$end[row] <- step_2
+    row <- row+1
+  }
+  if (step_3 %in% df$val){
+    links$start[row] <- i
+    links$end[row] <- step_3
+    row <- row+1
+  }
+  
+}
+# get rid of any unused rows
+links <- links %>% filter(!is.na(end))
+head(links, 20)
+```
+
+```{r useigraph}
+# now links contains all possible links from one adapter to the next
+# we can use igraph to create a network from 0 to 186
+g <- graph_from_data_frame(links, directed = TRUE)
+plot(g)
+```
+
+## How to Torture Your Laptop
+Now I thought "great, I can just use 'all_simple_paths' to count every possible path through the network, and then that is the answer.
+
+Turns out that 'all_simple_paths' actually returns a list though, and my poor 5 year old HP was not happy making a list billions of rows long.
+
+```{r countroutes}
+# Now count all the possible routes from the start to the end
+#paths_to_end <- length(all_simple_paths(g, from = "0", to = "186", mode = "out"))
+```
+Instead I decided to split the path into sections, cutting at places where there is only one possible path, and multiply the total paths through each section. The list for each section should be much more manageable.
+
+I probably should have automated this, but paths were short enough to just find places to cut by eye. Cutting into 6 sections to make sure the memory holds
+```{r splitpaths}
+path_to_31 <- links %>% filter(end<=31)
+path_to_63 <- links %>% filter(end>31 & end<=63)
+path_to_96 <- links %>% filter(end>63 & end<=96)
+path_to_118 <- links %>% filter(end>96 & end<=118)
+path_to_138 <- links %>% filter(end>118 & end<=138)
+path_to_end <- links %>% filter(end>138)
+
+g31 <- graph_from_data_frame(path_to_31, directed = TRUE)
+g63 <- graph_from_data_frame(path_to_63, directed = TRUE)
+g96 <- graph_from_data_frame(path_to_96, directed = TRUE)
+g118 <- graph_from_data_frame(path_to_118, directed = TRUE)
+g138 <- graph_from_data_frame(path_to_138, directed = TRUE)
+gend <- graph_from_data_frame(path_to_end, directed = TRUE)
+plot(g31)
+```
+
+
+## The Final Countdown
+Now I am ready to try again with the path counting.
+
+```{r finalcalc}
+paths_to_31 <- as.double(length(all_simple_paths(g31, from = "0", to = "31", mode = "out")))
+paths_to_63 <- as.double(length(all_simple_paths(g63, from = "31", to = "63", mode = "out")))
+paths_to_96 <- as.double(length(all_simple_paths(g96, from = "63", to = "96", mode = "out")))
+paths_to_118 <- as.double(length(all_simple_paths(g118, from = "96", to = "118", mode = "out")))
+paths_to_138 <- as.double(length(all_simple_paths(g138, from = "118", to = "138", mode = "out")))
+paths_to_186 <- as.double(length(all_simple_paths(gend, from = "138", to = "186", mode = "out")))
+
+# Found I need to increase the displayed digits in order to get the full answer
+options(digits=20)
+
+# total possible paths is all the section totals multiplied together
+paths_total <- paths_to_31*paths_to_63*paths_to_96*paths_to_118*paths_to_138*paths_to_186
+print(paths_total)
+```
+
+
+Hooray! The answer was correct and my laptop lived to fight another day.
